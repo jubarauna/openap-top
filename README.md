@@ -1,96 +1,406 @@
-# OpenAP Trajectory Optimizer
+# opentop: Open Trajectory Optimizer
 
-This repository contains the flight trajectory optimizer module based on the [OpenAP](https://github.com/junzis/openap) package. 
+`opentop` is **v2 of [`openap-top`](https://pypi.org/project/openap-top/)**. The package has been renamed and restructured: what used to be installed as `openap-top` and imported as `openap.top` now installs as `opentop` and imports as `import opentop`. The three headline changes in v2.0:
 
-This tool uses non-linear optimal control direct collocation algorithms from the `casadi` library. It provides simple interfaces to generate different optimal trajectories. For example, this tool can generate any of the following trajectories (or combinations thereof):
+- **New Opti-stack backend** — NLP construction has moved to CasADi's Opti stack, removing ~400 lines of boilerplate and fixing several long-standing bugs.
+- **Standalone package** — `opentop` is no longer a namespace extension of `openap`; it installs as a top-level package and imports as `import opentop`.
+- **Command-line interface** — `opentop optimize` and `opentop gengrid` expose the optimizer and grid-cache builder from the shell.
 
-- Complete flight trajectories or flight segments at different flight phase
-- Fuel-optimal trajectories
-- Wind-optimal trajectories
-- Cost index optimized trajectories
-- Trajectories optimized using customized 4D cost functions (contrails, weather)
-- Flight trajectories with constraint altitude, constant mach number, etc.
+See [What's New in 2.0](#whats-new-in-20) below for the full migration table.
 
-What's more, you can also design your own objective functions and constraints to optimize the flight trajectory.
+Flight trajectory optimizer based on the [OpenAP](https://github.com/junzis/openap) aircraft performance model.
 
+`opentop` uses non-linear optimal control via direct collocation (CasADi + IPOPT) to generate optimal flight trajectories. It provides simple interfaces for:
+
+- Complete flight trajectories (takeoff → cruise → landing)
+- Individual phases: climb, cruise, descent
+- Fuel-optimal, time-optimal, cost-index, and climate-optimal objectives
+- Wind integration
+- Custom 4D grid cost functions (contrails, weather, airspace)
+- User-defined objective functions and constraints
 
 ## 🕮 User Guide
 
-A more detailed user guide is available in the OpenAP handbook: <https://openap.dev/optimize>.
-
+Detailed guide and examples: <https://openap.dev/optimize>.
 
 ## Install
 
-1. Install from PyPI:
+From PyPI:
 
 ```sh
-pip install --upgrade openap-top
+pip install --upgrade opentop
 ```
 
-2. Install the development branch from GitHub (also ensures the development branch of `openap`):
+From the development branch:
 
 ```sh
 pip install --upgrade git+https://github.com/junzis/openap
-pip install --upgrade git+https://github.com/junzis/openap-top
+pip install --upgrade git+https://github.com/junzis/opentop
 ```
 
-The `top` package is an extension of `openap` and will be placed in the `openap` namespace.
+`opentop` is a standalone package. Prior to v2.0 it shipped as `openap.top`, a namespace extension of `openap`; v2.0 drops that and installs as a top-level `opentop` package instead.
 
 ## Quick Start
 
 ### A simple optimal flight
 
-The following is a piece of example code that generates a fuel-optimal flight between two airports, with a take-off mass of 85% of MTOW:
-
 ```python
-from openap import top
+import opentop
 
-optimizer = top.CompleteFlight("A320", "EHAM", "LGAV", m0=0.85)
-
+optimizer = opentop.CompleteFlight("A320", "EHAM", "LGAV", m0=0.85)
 flight = optimizer.trajectory(objective="fuel")
 ```
 
-Other predefined objective functions are available, for example:
-
-```python
-# Cost index 30 (out of max 100)
-flight = optimizer.trajectory(objective="ci:30") 
-
-# Global warming potential over 100 years
-flight = optimizer.trajectory(objective="gwp100")
-
-# Global temperature potential over 100 years
-flight = optimizer.trajectory(objective="gtp100") 
-```
-
-The final `flight` object is a Pandas DataFrame. Here is an example:
+`flight` is a Pandas DataFrame with columns for position, altitude, mass,
+Mach, TAS, vertical rate, heading, and per-segment `fuel_cost`.
 
 ![example_optimal_flight](./docs/_static/flight_dataframe.png)
 
-### Using Wind Data
-
-To include wind in our optimization, first download meteorological data in `grib` format from ECMWF, such as the ERA5 reanalysis data.
-
-Once grid files are ready, we can read and enable wind for our optimizer with this example code:
+### Other built-in objectives
 
 ```python
-from openap import top
+optimizer.trajectory(objective="time")      # minimum time
+optimizer.trajectory(objective="ci:30")     # cost index 30
+optimizer.trajectory(objective="gwp100")    # 100-yr global warming potential
+optimizer.trajectory(objective="gtp100")    # 100-yr global temperature potential
+```
 
+The supported climate metrics are `gwp20`, `gwp50`, `gwp100`, `gtp20`, `gtp50`, `gtp100`.
 
-fgrib = "path_to_the_wind_data.grib"
-windfield = top.tools.read_grids(fgrib)
+### Choosing a different engine
 
-optimizer = top.CompleteFlight("A320", "EHAM", "LGAV", m0=0.85)
+```python
+optimizer = opentop.CompleteFlight(
+    "A320", "EHAM", "LGAV", m0=0.85, engine="CFM56-5B4"
+)
+```
+
+### Flight phase optimizers
+
+```python
+cruise    = opentop.Cruise("A320", "EHAM", "LGAV", m0=0.85).trajectory()
+climb     = opentop.Climb("A320", "EHAM", "LGAV", m0=0.85).trajectory()
+descent   = opentop.Descent("A320", "EHAM", "LGAV", m0=0.85).trajectory()
+```
+
+`Cruise` also supports constant-altitude, constant-Mach, and fixed-track modes:
+
+```python
+opt = opentop.Cruise("A320", "EHAM", "LGAV", m0=0.85)
+opt.fix_cruise_altitude()
+opt.fix_mach_number()
+opt.fix_track_angle()
+flight = opt.trajectory()
+```
+
+### Multiple-aircraft separation optimization
+
+`MultiAircraft` formulates several cruise trajectories in one CasADi Opti
+problem and applies the default 5 NM / 1,000 ft high-order separation model:
+
+```python
+import opentop
+
+flights = [
+    opentop.FlightSpec(
+        "AC1", opentop.Cruise("A320", (52.3, 9.8), (49.5, 2.5)), start_time=0
+    ),
+    opentop.FlightSpec(
+        "AC2", opentop.Cruise("B738", (52.9, 4.6), (49.5, 9.3)), start_time=140
+    ),
+]
+
+result = opentop.MultiAircraft(flights).trajectory()
+df_ac1 = result.trajectories["AC1"]
+```
+
+The default constraint is
+`(dx / Rxy)^2 + (dy / Rxy)^2 + (dh / Rz)^8 >= 1.3`. Pass a
+`SeparationConfig` only to customize it. Fleet DataFrames preserve relative
+`ts` and add `absolute_ts` using each flight's configured start time.
+
+To study horizontal conflict avoidance at one shared flight level, first call
+`fix_cruise_altitude()` on every child optimizer and then pass
+`common_altitude=True`. The common altitude remains an optimization variable:
+
+```python
+for flight in flights:
+    flight.optimizer.fix_cruise_altitude()
+
+result = opentop.MultiAircraft(flights, common_altitude=True).trajectory()
+```
+
+`Descent` optimizers can also be coordinated. List flights in the desired
+landing order and use `minimum_arrival_gap_s` to enforce a runway sequence.
+Shared final-approach points can be supplied with ordered waypoint constraints.
+For structured arrivals, `route_heading_tolerance_deg` keeps each route leg
+near its nominal bearing, while `max_duration_s` can impose an operational
+descent-time bound without adding time to the objective.
+See the
+[coordinated-arrivals notebook](examples/multi_aircraft_arrivals.ipynb) for a
+three-aircraft runway-arrival example.
+
+The implementation supports uniform-timestep `Cruise` and `Descent`
+optimization, including ordered waypoint constraints. Wind, variable
+timesteps, time-dependent 4D grid objectives, and other phases are rejected
+explicitly until their fleet timing semantics are implemented.
+
+### Wind integration
+
+Download ERA5 (or similar) meteorological data in GRIB format, then:
+
+```python
+import opentop
+
+windfield = opentop.tools.read_grids("wind.grib")
+
+optimizer = opentop.CompleteFlight("A320", "EHAM", "LGAV", m0=0.85)
 optimizer.enable_wind(windfield)
 
-flight = optimizer.trajectory() # default objective is fuel
-```
-
-Next, we can visualize the trajectory with wind barbs:
-
-```
-top.vis.trajectory(flight, windfield=windfield, barb_steps=15)
+flight = optimizer.trajectory(objective="fuel")
+opentop.vis.trajectory(flight, windfield=windfield, barb_steps=15)
 ```
 
 ![example_optimal_flight](./docs/_static/optimal_flight_complete_example.png)
 
+### Custom grid cost (contrails, weather, airspace)
+
+Build a CasADi interpolant from a DataFrame with columns `longitude`, `latitude`, `height` (m), `cost`, and optionally `ts`:
+
+```python
+interpolant = opentop.tools.interpolant_from_dataframe(df_cost)
+
+def contrail_objective(x, u, dt, **kwargs):
+    grid_cost = optimizer.obj_grid_cost(
+        x, u, dt, interpolant=kwargs["interpolant"], n_dim=3
+    )
+    fuel_cost = optimizer.obj_fuel(x, u, dt)
+    return grid_cost + fuel_cost
+
+flight = optimizer.trajectory(
+    objective=contrail_objective,
+    interpolant=interpolant,
+    n_dim=3,
+)
+```
+
+See <https://openap.dev/optimize/contrails.html> for a full contrail + CO₂ example.
+
+### Custom objective functions
+
+Any callable with signature `(x, u, dt, **kwargs) -> ca.MX` can be used:
+
+```python
+def my_objective(x, u, dt, **kwargs):
+    # x: state [xp, yp, h, mass, ts]
+    # u: control [mach, vs, psi]
+    return your_cost_expression
+
+flight = optimizer.trajectory(objective=my_objective)
+```
+
+### Multi-start optimization for non-convex objectives
+
+Trajectory optimization with grid costs, blended objectives, or tight constraints can have multiple local minima — a single solve lands in whichever basin is closest to the initial guess. For problems where robustness matters, `multi_start_trajectory` runs N solves from different randomized initial guesses and returns the best:
+
+```python
+trajectory, candidates = optimizer.multi_start_trajectory(
+    objective=contrail_objective,
+    interpolant=interp,
+    max_fuel=6500,
+    n_starts=5,
+    lateral_jitter_km=100.0,
+    altitude_jitter_ft=3000.0,
+    seed=0,
+)
+```
+
+Start 0 uses the canonical initial guess (your `initial_guess=` if provided, otherwise the default great-circle). Starts 1..N-1 are random perturbations of the canonical: sinusoidal lateral bulges (endpoints preserved) and constant altitude offsets.
+
+Returned is a `(trajectory, candidates)` tuple. `trajectory` is the winning DataFrame (feasibility-first, then lowest objective). `candidates` is a best-first ordered list of dicts with per-start metadata (`objective`, `fuel`, `grid_cost`, `success`, `iters`, `perturbation`, `wall_time_s`, `trajectory`).
+
+`n_starts=1` is identical to calling `trajectory()` directly, so adding `multi_start_trajectory` to existing code is additive.
+
+### Precomputed grid caches (recommended for contrail + CO₂)
+
+Linear interpolation over a 4D contrail-cost grid has discontinuous derivatives at every grid cell boundary, which can cause IPOPT's line search to oscillate on non-convex blended objectives. The fix is to use a cubic B-spline interpolant, which has continuous derivatives. But building a bspline over a large grid can take several minutes, so we expose a cache utility:
+
+```python
+from opentop.tools import cached_interpolant_from_dataframe
+
+interpolant = cached_interpolant_from_dataframe(
+    df_cost, "cache/contrail.casadi", shape="bspline"
+)
+```
+
+First call builds the bspline and writes it to disk (~1-3 minutes for a 60k-point slice); subsequent calls load the cache in under a second.
+
+If your grid only covers the altitude band where contrails actually form (typically FL200-FL440), extend it with zero-cost levels outside that band before building the interpolant — otherwise `opentop.CompleteFlight` trajectories that start and end on the ground will query the interpolant outside its data range. The `opentop` CLI has a helper for this:
+
+```sh
+opentop gengrid --in raw_grid.parquet --out grid.casadi \
+    --bbox 35:57,-9:7 --time 2022-02-20T10:00,2022-02-20T14:00 \
+    --pad-altitudes
+```
+
+`--pad-altitudes` is on by default and adds zero-cost rows at altitudes from 0 to FL480 so the interpolant returns 0 (physically correct — no contrails below ~FL200 or above ~FL440) outside the data band.
+
+## Command-line interface
+
+Installing `opentop` also installs the `opentop` executable, which exposes two subcommands: `optimize` (run a trajectory optimization) and `gengrid` (precompute a grid-cost interpolant).
+
+### `opentop optimize`
+
+Run a trajectory optimization without writing any Python:
+
+```sh
+opentop optimize EHAM EDDF -a A320 --phase cruise --obj fuel
+```
+
+A concise solver summary (status, iterations, objective, fuel burn, max altitude, flight time) is printed to stdout. Pass `-o flight.parquet` to also save the full trajectory DataFrame.
+
+Supported objectives: `fuel`, `time`, `ci:N` (cost index, any integer), `gwp20`/`gwp50`/`gwp100`, `gtp20`/`gtp50`/`gtp100`, and `grid` (requires `--grid FILE`).
+
+Blended objectives are written as a weighted sum:
+
+```sh
+opentop optimize EHAM EDDF -a A320 --phase all \
+    --obj "0.3*fuel+0.7*grid" \
+    --grid contrail.casadi
+```
+
+Common flags:
+
+| flag | purpose |
+|---|---|
+| `-a`, `--aircraft` | aircraft type (required), e.g. `A320` |
+| `--phase` | `all` (CompleteFlight, default), `cruise`, `climb`, `descent` |
+| `--obj` | objective expression — single term or weighted sum |
+| `--m0` | initial mass as a fraction of MTOW (default `0.85`) |
+| `--grid` | cost-grid file; `.casadi` cache preferred, `.parquet` accepted with a slow-path warning |
+| `--max-iter` | IPOPT iteration cap (default `1500`) |
+| `-o`, `--output` | write the trajectory DataFrame to a parquet file |
+| `-v`, `--debug` | verbose IPOPT output |
+
+### `opentop gengrid`
+
+Build and cache a CasADi interpolant from a raw cost grid:
+
+```sh
+opentop gengrid --in raw_grid.parquet --out contrail.casadi \
+    --bbox 35:57,-9:7 \
+    --time 2022-02-20T10:00,2022-02-20T14:00 \
+    --shape bspline
+```
+
+The resulting `.casadi` file loads in under a second (vs. minutes to rebuild a bspline from raw grid data), so keep it on disk and pass it to `opentop optimize --grid`.
+
+Use `opentop --help`, `opentop optimize --help`, and `opentop gengrid --help` for the full option list.
+
+### `opentop replay`
+
+Replay a real flight by callsign: pulls trajectory from OpenSky, ERA5 meteo
+from fastmeteo, and runs an optimization side-by-side with the actual flight.
+
+```sh
+# Install with the replay extras
+pip install "opentop[replay]"
+
+# Flag mode
+opentop replay RYR880W --date 2023-01-05 --obj fuel -o ./results/
+
+# Interactive wizard (no arguments)
+opentop replay
+```
+
+Outputs under the output directory:
+- `actual.parquet` — cleaned OpenSky trace
+- `optimized.parquet` — optimized trajectory
+- `trajectory.png` — actual-vs-optimized overlay
+
+Requires OpenSky credentials at `~/.config/traffic/traffic.conf` (see
+traffic's docs). ERA5 data is fetched via fastmeteo's ArcoEra5; the default
+local store is `<system tmp>/opentop-era5` — first use will download several
+GB on a large bbox.
+
+## Accessing Solver Results
+
+After calling `.trajectory()`, the optimizer exposes:
+
+```python
+optimizer.stats           # solver statistics dict ("success", "iter_count", ...)
+optimizer.success         # True if the most recent solve succeeded
+optimizer.objective_value # final objective value (float)
+```
+
+For full structured access including status, iteration count, fuel, and grid cost in one dataclass:
+
+```python
+result = optimizer.trajectory(objective="fuel", result_object=True)
+# result.df, result.success, result.status, result.objective,
+# result.iters, result.fuel, result.grid_cost, result.stats
+```
+
+`optimizer.solver` still works in v2.2 with a `DeprecationWarning`; it will be removed in v2.3.
+
+## Benchmarks
+
+Run benchmarks across versions to verify performance:
+
+```sh
+./benchmark.sh                 # Benchmark HEAD (local dev code)
+./benchmark.sh v2.0.0          # Benchmark a specific PyPI release
+./benchmark.sh v1.11.0 v2.0.0  # Benchmark multiple versions sequentially
+```
+
+Reports land in `tests/benchmarks/<version>.txt`.
+
+## Migrating to 2.2
+
+Version 2.2 makes several structural changes that may require small updates to existing code:
+
+| v2.1 | v2.2 |
+|---|---|
+| `opentop.MultiPhase(...)` | `opentop.CompleteFlight(...)` — `MultiPhase` has been removed |
+| `trajectory(objective="fuel", foo=bar)` silently tolerates unknown kwargs | Unknown kwargs raise `TypeError`; only documented names are accepted |
+| `optimizer.solver.stats()` | `optimizer.stats` (dict) or `optimizer.success` (bool) |
+| `opentop.vis.map(df, ...)` | `opentop.vis.plot_map(df, ...)` |
+| — | New: `trajectory(..., result_object=True)` returns a `TrajectoryResult` dataclass |
+| — | New: `opentop replay CALLSIGN` CLI — fetches real flight from OpenSky, runs comparison optimization (see `### opentop replay` above) |
+| — | New: `opentop.vis.trajectory(df | [df1, df2])` accepts a list for overlay plotting |
+
+Internally, `opentop/` has been split into focused modules: `_dynamics.py`, `_objectives.py`, `_trajectory.py`, `_options.py`, `_multi_start.py`. If you were importing internal helpers, they have moved — use the public API on `Base` / `Cruise` / `CompleteFlight` where possible.
+
+`MultiPhase` was rarely used and its functionality is fully covered by `CompleteFlight`. If you had code using `MultiPhase`, replace it with:
+
+```python
+full = opentop.CompleteFlight("A320", "EHAM", "LGAV", m0=0.85).trajectory()
+```
+
+`optimizer.solver` still works in v2.2 with a `DeprecationWarning`. It will be removed in v2.3 — prefer `optimizer.stats` / `optimizer.success`.
+
+Type annotations are now enforced in CI via pyright (basic mode). Public API signatures are fully annotated; see `opentop/_options.py` for the new `SolveOptions`, `GridOptions`, and `TrajectoryResult` dataclasses.
+
+## What's New in 2.0
+
+Version 2.0 is a major refactor. Most user code keeps the same shape, but a few things have moved:
+
+| v1.x | v2.0 |
+|---|---|
+| `pip install openap-top` | `pip install opentop` |
+| `from openap import top` | `import opentop` |
+| `top.Cruise(...)` | `opentop.Cruise(...)` |
+| `optimizer.change_engine()` dropped | `opentop.Cruise(..., engine="CFM56-5B4")` |
+| `optimizer.solution["f"]` | `optimizer.objective_value` |
+| `optimizer.solver` was a `ca.nlpsol` callable | now a `ca.OptiSol` object |
+| `setup(max_iteration=...)` | `setup(max_iter=...)` |
+| — | new CLI: `opentop optimize ORIGIN DEST ...` and `opentop gengrid ...` |
+| — | new `opentop.tools.cached_interpolant_from_dataframe()` for disk-cached bspline interpolants |
+
+The NLP construction moved to CasADi's Opti stack, which removed ~400 lines of boilerplate and cleaned up several bugs. The module rename from `openap.top` to `opentop` eliminates the namespace-extension install mode that used to require `.pth` tricks.
+
+See the [changelog](https://github.com/junzis/opentop/releases) for details.
+
+## License
+
+GNU LGPL v3

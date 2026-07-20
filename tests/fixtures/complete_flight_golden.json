@@ -1,0 +1,10 @@
+{
+  "objective": 7381.735895568055,
+  "iters": 50,
+  "fuel": 7381.735895571088,
+  "commit_sha": "f32255a",
+  "route": "EHAM-LGAV",
+  "aircraft": "A320",
+  "m0": 0.85,
+  "objective_spec": "fuel"
+}

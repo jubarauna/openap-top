@@ -8,6 +8,7 @@ import casadi as ca
 import openap.casadi as oc
 from openap.aero import fpm, ft, kts
 
+import numpy as np
 import pandas as pd
 
 from ._transcription import AircraftTranscription
@@ -56,6 +57,7 @@ class Cruise(Base):
         self.allow_descent = False
         self.h_min = h_min
         self.h_max = h_max
+        self.track_ref = None
 
     def fix_mach_number(self):
         """Constrain Mach number to be constant during cruise."""
@@ -64,6 +66,28 @@ class Cruise(Base):
     def fix_cruise_altitude(self):
         """Constrain altitude to be constant (no climb/descent)."""
         self.fix_alt = True
+
+    def follow_track(self, lat: Any, lon: Any) -> None:
+        """Constrain the lateral ground track to follow a given (lat, lon) trace."""
+        lat = np.asarray(lat, dtype=float)
+        lon = np.asarray(lon, dtype=float)
+
+        d0 = float(oc.geo.distance(lat[0], lon[0], self.lat1, self.lon1))
+        dn = float(oc.geo.distance(lat[-1], lon[-1], self.lat2, self.lon2))
+        if max(d0, dn) > 1000:
+            raise ValueError(
+                f"track endpoints do not match origin/destination "
+                f"(off by {d0 / 1000:.1f} km / {dn / 1000:.1f} km); "
+                f"the boundary conditions pin both ends of the trajectory."
+            )
+
+        x, y = self.proj(lon, lat)
+        s = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(x), np.diff(y)))])
+        self.track_ref = (
+            ca.interpolant("x_ref", "bspline", [s.tolist()], x.tolist()),
+            ca.interpolant("y_ref", "bspline", [s.tolist()], y.tolist()),
+            float(s[-1]),
+        )
 
     def fix_track_angle(self):
         """Constrain heading to be constant (great circle track)."""
@@ -217,12 +241,15 @@ class Cruise(Base):
                 opti.bounded(-1, X[k + 1][4] - X[k][4] - self._interval_dt(k), 1)  # type: ignore[arg-type]
             )
 
-        # Limit turn rate independently of interval duration
-        for k in range(self.nodes - 1):
-            turn_rate = self._control_change_rate(U, k, 2)
-            opti.subject_to(
-                opti.bounded(-self.MAX_TURN_RATE, turn_rate, self.MAX_TURN_RATE)  # type: ignore[arg-type]
-            )
+        # Limit turn rate independently of interval duration. Skipped when a
+        # reference track is followed: the lateral path is externally fixed, so
+        # the recorded heading changes must be reproduced rather than smoothed.
+        if self.track_ref is None:
+            for k in range(self.nodes - 1):
+                turn_rate = self._control_change_rate(U, k, 2)
+                opti.subject_to(
+                    opti.bounded(-self.MAX_TURN_RATE, turn_rate, self.MAX_TURN_RATE)  # type: ignore[arg-type]
+                )
 
         # Limit vertical acceleration independently of interval duration
         for k in range(self.nodes - 1):
@@ -246,6 +273,21 @@ class Cruise(Base):
         if self.fix_track:
             for k in range(self.nodes - 1):
                 opti.subject_to(U[k + 1][2] == U[k][2])
+
+        # Pin the lateral ground track to a recorded path (follow_track). Each
+        # interior node is fixed to the arc-length-parametrized reference curve;
+        # the monotone arc-length variable keeps nodes ordered along the path.
+        if self.track_ref is not None:
+            x_ref, y_ref, s_max = self.track_ref
+            s = opti.variable(self.nodes + 1)
+            for k in range(self.nodes + 1):
+                opti.subject_to(opti.bounded(0, s[k], s_max))  # type: ignore[arg-type]
+                opti.set_initial(s[k], s_max * k / self.nodes)
+            for k in range(1, self.nodes):
+                opti.subject_to(X[k][0] == x_ref(s[k]))
+                opti.subject_to(X[k][1] == y_ref(s[k]))
+            for k in range(self.nodes):
+                opti.subject_to(s[k + 1] >= s[k])
 
         if not self.allow_descent:
             for k in range(self.nodes):

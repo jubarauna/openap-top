@@ -237,6 +237,7 @@ class CompleteFlight(Base):
         dt_min: float | None = None,
         dt_max: float | None = None,
         result_object: bool = False,
+        path_constraint_points: list[tuple[int, float]] | None = None,
     ) -> pd.DataFrame | TrajectoryResult:
         """Compute the optimal complete flight trajectory.
 
@@ -264,6 +265,12 @@ class CompleteFlight(Base):
                 Defaults to an automatic fraction of the expected interval duration.
             dt_max: Maximum interval duration in seconds for variable timesteps.
             result_object: If True, return a TrajectoryResult.
+            path_constraint_points: Additional (zero-based interval, local time
+                fraction in [0, 1]) pairs for force and energy constraints.
+                Use points from an independent path audit to constrain missed
+                peaks without changing the dynamics mesh. Default None keeps
+                boundary and collocation checks. Finite sampling does not
+                guarantee feasibility everywhere between the checked points.
 
         Returns:
             pd.DataFrame (or TrajectoryResult if result_object=True).
@@ -326,7 +333,9 @@ class CompleteFlight(Base):
                 opti.subject_to(U[k][1] <= 0)
 
         # Force and energy constraints
-        for state, control in self._last_transcription.path_points():
+        for state, control in self._last_transcription.path_points(
+            path_constraint_points or ()
+        ):
             mass = state[3]
             v = oc.aero.mach2tas(control[0], state[2], dT=self.dT)
             tas = v / kts

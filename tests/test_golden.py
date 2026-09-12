@@ -1,9 +1,9 @@
-"""Golden-smoke regression for CompleteFlight.
+"""Numerical objective regression for the continuous-control CompleteFlight.
 
-If this test fails by >1% on the objective, something in a subsequent
-Phase 3 / Phase 4 commit changed the optimization outcome on the
-canonical EHAM→LGAV route. Investigate before proceeding — the refactor
-is not meant to shift optima by more than noise.
+The fixture pins the original EHAM-LGAV problem and records a one-time mesh
+study plus an independently audited variant with extra path constraints.
+This test checks objective stability and solver convergence. It does not
+certify feasibility everywhere between the finite constraint points.
 """
 
 import json
@@ -12,7 +12,7 @@ from pathlib import Path
 import opentop as top
 
 GOLDEN = Path(__file__).parent / "fixtures" / "complete_flight_golden.json"
-TOLERANCE = 0.01  # 1% across refactor
+TOLERANCE = 0.01  # Keep the existing 1% regression tolerance.
 
 
 def test_complete_flight_golden_objective_within_1pct():
@@ -20,8 +20,10 @@ def test_complete_flight_golden_objective_within_1pct():
         record = json.load(f)
 
     opt = top.CompleteFlight(record["aircraft"], "EHAM", "LGAV", m0=record["m0"])
-    opt.setup(max_iter=1500)
-    df = opt.trajectory(objective=record["objective_spec"])
+    opt.setup(**record["setup"])
+    df = opt.trajectory(
+        objective=record["objective_spec"], **record["trajectory_kwargs"]
+    )
 
     assert df is not None
 

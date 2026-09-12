@@ -1,10 +1,321 @@
 {
-  "objective": 7381.735895568055,
-  "iters": 50,
-  "fuel": 7381.735895571088,
-  "commit_sha": "f32255a",
+  "objective": 7303.7867122819125,
+  "iters": 172,
+  "fuel": 7303.786712035275,
+  "commit_sha": "b30086da4e59d3c7e48a03e7556983d20bc335f8",
+  "working_tree_changes": "State and time initial-guess correction in base.py",
+  "source_sha256": {
+    "base.py": "f814f3bd7a776f8b7c5b47c20994f5965bef811ae528cd98791c1cfe7507a4b5",
+    "full.py": "7b9a3bea3687429048668512c9603198963de865c753606d71f32816f75082a9"
+  },
+  "versions": {
+    "opentop": "2.5.0",
+    "openap": "2.6.0",
+    "casadi": "3.7.2",
+    "numpy": "2.4.4"
+  },
   "route": "EHAM-LGAV",
   "aircraft": "A320",
   "m0": 0.85,
-  "objective_spec": "fuel"
+  "objective_spec": "fuel",
+  "setup": {
+    "nodes": 43,
+    "polydeg": 3,
+    "max_iter": 1500
+  },
+  "trajectory_kwargs": {
+    "climb_nodes": 10,
+    "descent_nodes": 10
+  },
+  "previous_objective": 7381.735895568055,
+  "validation": {
+    "date": "2026-09-12",
+    "scope": "One-time mesh study and targeted performance audit; the golden test checks the original numerical problem, not continuous-time feasibility.",
+    "mesh_objectives_kg": {
+      "43": 7303.7867122819125,
+      "86": 7297.948106170498,
+      "172": 7296.361278982979,
+      "344": 7295.7785971744
+    },
+    "constrained_objective_kg": 7303.870528708244,
+    "constrained_fuel_increase_kg": 0.08381642633139563,
+    "constrained_initialization": "Warm start from adaptive refinement",
+    "constrained_source_sha256": {
+      "base.py": "f814f3bd7a776f8b7c5b47c20994f5965bef811ae528cd98791c1cfe7507a4b5",
+      "full.py": "4849c0cfec310cefa661847cdc4b5cf98f428ea8313a31494fa3c4dda227a86f",
+      "_transcription.py": "42d112d0158d2b87a5069f055366bee7a44035b413e20162fa0235b31f134272"
+    },
+    "path_constraint_points": [
+      [
+        1,
+        0.1875
+      ],
+      [
+        3,
+        0.3025
+      ],
+      [
+        4,
+        0.96
+      ],
+      [
+        6,
+        0.91
+      ],
+      [
+        7,
+        0.9425
+      ],
+      [
+        22,
+        0.615
+      ],
+      [
+        23,
+        0.6925
+      ],
+      [
+        24,
+        0.4425
+      ],
+      [
+        25,
+        0.6925
+      ],
+      [
+        26,
+        0.6900000000000001
+      ],
+      [
+        27,
+        0.305
+      ],
+      [
+        28,
+        0.37
+      ],
+      [
+        29,
+        0.6925
+      ],
+      [
+        30,
+        0.6925
+      ],
+      [
+        32,
+        0.34
+      ],
+      [
+        1,
+        0.2025
+      ],
+      [
+        1,
+        0.38
+      ],
+      [
+        3,
+        0.4
+      ],
+      [
+        4,
+        0.9500000000000001
+      ],
+      [
+        6,
+        0.9025
+      ],
+      [
+        7,
+        0.97
+      ],
+      [
+        11,
+        0.3075
+      ],
+      [
+        12,
+        0.6950000000000001
+      ],
+      [
+        23,
+        0.625
+      ],
+      [
+        24,
+        0.6900000000000001
+      ],
+      [
+        25,
+        0.595
+      ],
+      [
+        27,
+        0.4025
+      ],
+      [
+        28,
+        0.435
+      ],
+      [
+        29,
+        0.595
+      ],
+      [
+        30,
+        0.79
+      ],
+      [
+        32,
+        0.42
+      ],
+      [
+        1,
+        0.445
+      ],
+      [
+        3,
+        0.45
+      ],
+      [
+        7,
+        0.985
+      ],
+      [
+        10,
+        0.3075
+      ],
+      [
+        13,
+        0.6950000000000001
+      ],
+      [
+        23,
+        0.6625
+      ],
+      [
+        24,
+        0.595
+      ],
+      [
+        28,
+        0.4025
+      ],
+      [
+        29,
+        0.5475
+      ],
+      [
+        32,
+        0.46
+      ],
+      [
+        1,
+        0.47250000000000003
+      ],
+      [
+        3,
+        0.425
+      ],
+      [
+        6,
+        0.905
+      ],
+      [
+        23,
+        0.65
+      ],
+      [
+        24,
+        0.6425
+      ],
+      [
+        25,
+        0.6425
+      ],
+      [
+        30,
+        0.8375
+      ],
+      [
+        32,
+        0.48
+      ],
+      [
+        1,
+        0.485
+      ],
+      [
+        3,
+        0.41250000000000003
+      ],
+      [
+        11,
+        0.405
+      ],
+      [
+        32,
+        0.47000000000000003
+      ],
+      [
+        1,
+        0.47750000000000004
+      ],
+      [
+        3,
+        0.4175
+      ],
+      [
+        12,
+        0.3075
+      ],
+      [
+        32,
+        0.47500000000000003
+      ],
+      [
+        1,
+        0.47500000000000003
+      ],
+      [
+        3,
+        0.42
+      ],
+      [
+        4,
+        0.9525
+      ],
+      [
+        14,
+        0.6925
+      ],
+      [
+        27,
+        0.3525
+      ],
+      [
+        24,
+        0.62
+      ]
+    ],
+    "independent_audit_points_per_interval": 1602,
+    "independent_audit_max_violation_n": [
+      0.0,
+      0.0008449518863926642,
+      0.002496626615538844
+    ],
+    "rk4_steps_per_interval": 160,
+    "rk4_max_violation_n": [
+      0.0,
+      0.002420428463665303,
+      0.0028595314197445987
+    ],
+    "residual_order": [
+      "drag",
+      "lift_margin",
+      "energy_equivalent_force"
+    ],
+    "limitations": "Explicit extra points are case-specific; default boundary/collocation checks still permit between-node violations. Dense audits are not analytic feasibility certificates."
+  }
 }

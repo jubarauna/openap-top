@@ -42,13 +42,20 @@ pip install --upgrade git+https://github.com/junzis/opentop
 
 ## Control representation
 
-The development version uses continuous, piecewise-linear Mach, vertical-speed
+OpenTOP 2.6 uses continuous, piecewise-linear Mach, vertical-speed
 and heading controls. With `nodes=N` intervals it optimizes `N+1` boundary
 controls, including an independent arrival control. Dynamics and objective
 quadrature evaluate the interpolated control at every collocation point.
 Phase rate limits cover every interval using its actual duration, including
 variable timesteps. Cruise performance constraints also cover internal
 collocation points; nonlinear feasibility still requires between-node checks.
+For `CompleteFlight`, `trajectory(path_constraint_points=[(interval, tau), ...])`
+adds force and energy constraints at selected points inside intervals. Interval
+indices start at zero; `tau` is the local time fraction from 0 to 1. States use
+the collocation polynomial and controls use linear interpolation. Select these
+points from a path audit for the specific route, mesh, and objective, then audit
+the new solution again. The optimizer does not select them automatically, and
+these additional samples do not guarantee feasibility everywhere between them.
 
 This replaces the previous piecewise-constant control transcription. Saved
 trajectory DataFrames retain their columns and `N+1` rows. The numeric export

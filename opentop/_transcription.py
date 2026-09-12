@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from math import prod
+from operator import index
 from typing import Any
 
 
@@ -34,9 +37,33 @@ class AircraftTranscription:
         """Continuous, piecewise-linear control at local interval time tau."""
         return (1 - tau) * self.U[interval] + tau * self.U[interval + 1]
 
-    def path_points(self):
-        """State/control pairs at mesh boundaries and collocation points."""
+    def state_at(self, interval: int, tau: float) -> Any:
+        """Evaluate the collocation state polynomial inside one interval."""
+        interval = index(interval)
+        if not 0 <= interval < len(self.Xc):
+            raise ValueError("path constraint interval is outside the mesh")
+        if not 0 <= tau <= 1:
+            raise ValueError("path constraint tau must be finite and in [0, 1]")
+        if tau == 1:
+            return self.X[interval + 1]
+        roots = (0.0, *self.collocation_roots)
+        states = (self.X[interval], *self.Xc[interval])
+        return sum(
+            prod((tau - r) / (roots[j] - r) for i, r in enumerate(roots) if i != j)
+            * state
+            for j, state in enumerate(states)
+        )
+
+    def path_points(self, extra_points: Iterable[tuple[int, float]] = ()):
+        """State/control pairs at boundaries, collocation, and extra points.
+
+        Extra points are (zero-based interval, local time fraction) pairs.
+        States use the collocation polynomial; controls interpolate linearly.
+        """
         yield from zip(self.X, self.U)
         for k, states in enumerate(self.Xc):
             for tau, state in zip(self.collocation_roots, states):
                 yield state, self.control_at(k, tau)
+
+        for interval, tau in extra_points:
+            yield self.state_at(interval, tau), self.control_at(interval, tau)

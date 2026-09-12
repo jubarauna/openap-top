@@ -563,10 +563,17 @@ class Base:
         roots = ca.collocation_points(self.polydeg, "legendre")
         J = 0  # Objective accumulator
 
+        state_guess = np.array(self.x_guess, dtype=float, copy=True)
+        if kwargs.get("initial_guess") is None:
+            # Use the flight-duration seed instead of the generic six-hour grid.
+            state_guess[:, 4] = np.linspace(
+                state_guess[0, 4], state_guess[0, 4] + ts_final_guess, self.nodes + 1
+            )
+
         # Initial state
         Xk = self._opti.variable(nstates)
         self._opti.subject_to(self._opti.bounded(self.x_0_lb, Xk, self.x_0_ub))  # type: ignore[arg-type]  # CasADi stubs wrong: bounded(lb, expr, ub) accepts lists
-        self._opti.set_initial(Xk, self.x_guess[0])
+        self._opti.set_initial(Xk, state_guess[0])
         X.append(Xk)
 
         # Sharing each boundary control makes the interpolant continuous.
@@ -579,7 +586,7 @@ class Base:
                 u_lb, u_ub = self.u_f_lb, self.u_f_ub
             else:
                 u_lb, u_ub = self.u_lb, self.u_ub
-            self._opti.subject_to(self._opti.bounded(u_lb, Uk, u_ub))
+            self._opti.subject_to(self._opti.bounded(u_lb, Uk, u_ub))  # type: ignore[arg-type]  # CasADi stubs reject valid list bounds
             self._opti.set_initial(Uk, self.u_guess)
 
         for k in range(self.nodes):
@@ -602,7 +609,10 @@ class Base:
                 Xkj = self._opti.variable(nstates)
                 Xc.append(Xkj)
                 self._opti.subject_to(self._opti.bounded(self.x_lb, Xkj, self.x_ub))  # type: ignore[arg-type]  # CasADi stubs wrong
-                self._opti.set_initial(Xkj, self.x_guess[k])
+                tau = roots[j]
+                self._opti.set_initial(
+                    Xkj, (1 - tau) * state_guess[k] + tau * state_guess[k + 1]
+                )
             Xc_store.append(Xc)
 
             # Collocation equations and quadrature
@@ -630,7 +640,7 @@ class Base:
                 x_lb, x_ub = self.x_f_lb, self.x_f_ub
 
             self._opti.subject_to(self._opti.bounded(x_lb, Xk, x_ub))  # type: ignore[arg-type]  # CasADi stubs wrong
-            self._opti.set_initial(Xk, self.x_guess[k])
+            self._opti.set_initial(Xk, state_guess[k + 1])
 
             # Continuity constraint
             self._opti.subject_to(Xk_end == Xk)

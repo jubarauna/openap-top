@@ -23,9 +23,9 @@ class Integrator(Base):
         self.u_guess = [0.0] * 3
 
     def init_model(self, objective, *, function_name="f", **kwargs):
-        self.x = ca.MX.sym("x", 5)
-        self.u = ca.MX.sym("u", 3)
-        dt = ca.MX.sym("dt")
+        self.x = ca.MX.sym("x", 5)  # type: ignore[arg-type]  # CasADi stubs reject valid symbolic constructors
+        self.u = ca.MX.sym("u", 3)  # type: ignore[arg-type]
+        dt = ca.MX.sym("dt")  # type: ignore[arg-type]
         self.func_dynamics = ca.Function(
             function_name,
             [self.x, self.u, dt],
@@ -70,8 +70,61 @@ def test_linear_controls_integrate_dynamics_and_cost(variable):
     assert np.max(np.maximum(lower - residual, residual - upper)) < 1e-10
     np.testing.assert_allclose(evaluate(t.objective_raw), cost, atol=1e-12)
     assert len(list(t.path_points())) == 9
+    extra = [(0, 0.37), (1, 0.63)]
+    points = list(t.path_points(extra))
+    assert len(points) == 11
+    for (k, tau), (state, control) in zip(extra, points[-2:]):
+        u0, u1 = values[k : k + 2]
+        start_position = sum(
+            dt * (values[j] + values[j + 1]) / 2 for j, dt in enumerate(durations[:k])
+        )
+        xp = start_position + durations[k] * (u0 * tau + (u1 - u0) * tau**2 / 2)
+        np.testing.assert_allclose(
+            evaluate(state),
+            [xp, 0, 0, 0, sum(durations[:k]) + tau * durations[k]],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(evaluate(control), [u0 + (u1 - u0) * tau, 0, 0])
+    np.testing.assert_allclose(evaluate(t.state_at(1, 1)), evaluate(t.X[-1]))
     # The terminal control participates in the final interval's physics and cost.
     problem.set_initial(t.U[-1], [3, 0, 0])
     changed = evaluate(problem.g)
     assert np.max(np.maximum(lower - changed, changed - upper)) > 0.1
     assert abs(evaluate(t.objective_raw)[0] - cost) > 1
+
+
+@pytest.mark.parametrize("supplied_guess", [False, True])
+def test_state_initialization_matches_mesh_and_preserves_supplied_times(supplied_guess):
+    opt = Integrator()
+    opt.x_guess = np.array(
+        [[0, 0, 0, 50, 0], [10, 4, 6, 45, 8], [20, 8, 12, 40, 20]],
+        dtype=float,
+    )
+    original = opt.x_guess.copy()
+    problem = ca.Opti()
+    tr = opt._add_transcription(
+        problem, "fuel", 5.0, initial_guess=object() if supplied_guess else None
+    )
+    expected = original.copy()
+    if not supplied_guess:
+        expected[:, 4] = [0, 2.5, 5]
+    for state, value in zip(tr.X, expected):
+        np.testing.assert_allclose(problem.debug.value(state, problem.initial()), value)
+    for k, states in enumerate(tr.Xc):
+        for tau, state in zip(tr.collocation_roots, states):
+            np.testing.assert_allclose(
+                problem.debug.value(state, problem.initial()),
+                (1 - tau) * expected[k] + tau * expected[k + 1],
+            )
+    np.testing.assert_array_equal(opt.x_guess, original)
+
+
+@pytest.mark.parametrize(
+    "interval,tau",
+    [(-1, 0.5), (2, 0.5), (0, -0.1), (0, 1.1), (0, float("nan")), (0, float("inf"))],
+)
+def test_extra_path_points_reject_invalid_locations(interval, tau):
+    opt = Integrator()
+    tr = opt._add_transcription(ca.Opti(), "fuel", 5.0)
+    with pytest.raises(ValueError, match="path constraint"):
+        list(tr.path_points([(interval, tau)]))

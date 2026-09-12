@@ -30,8 +30,24 @@ public mirror).
 
 ## complete_flight_golden.json
 
-Baseline objective/fuel/iters for the CompleteFlight EHAM→LGAV A320
-golden-smoke regression test. Recorded at commit f32255a.
+Numerical objective/fuel/iteration baseline for the continuous-control
+CompleteFlight EHAM-LGAV A320 case: 7,303.786712 kg, with 43 intervals and
+degree-3 collocation. The fixture pins mesh and phase allocation and records
+source hashes for `b30086d` plus the initialization correction. The existing
+1% regression tolerance is unchanged.
+
+A one-time 43/86/172/344-interval study changes fuel by 0.110%. A separate
+43-interval solution with 63 extra force/energy constraint points costs only
+0.083816 kg more. An independent 1,602-point-per-interval audit and RK4 replay
+find maximum equivalent-force residuals below 0.003 N for that warm-started
+constrained solution. The fixture records these extra points and audit results
+as provenance; the golden test retains its original constraint configuration.
+The mesh study and adaptive comparison are not permanent test cases.
+
+This is a numerical regression baseline, not a continuous-path feasibility
+certificate. Default boundary/collocation checks still miss between-node peaks.
+Extra points must be selected and re-audited for each problem; points from this
+fixture are not a general route-independent constraint preset.
 
 ## flight_ryr880w_2023-01-05.parquet
 

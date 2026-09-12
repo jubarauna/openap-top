@@ -257,16 +257,16 @@ class Descent(Base):
         X, U = transcription.X, transcription.U
 
         # Constrain time and dt.
-        for k in range(1, self.nodes):
+        for k in range(1, self.nodes + 1):
             time_delta = X[k][4] - X[k - 1][4] - self._interval_dt(k - 1)
             opti.subject_to(opti.bounded(-1, time_delta, 1))  # type: ignore[arg-type]
 
         # Smooth Mach number changes.
-        for k in range(1, self.nodes):
+        for k in range(1, self.nodes + 1):
             opti.subject_to(opti.bounded(-0.1, U[k][0] - U[k - 1][0], 0.1))  # type: ignore[arg-type]
 
         # Limit vertical acceleration and turn rate independently of dt.
-        for k in range(1, self.nodes):
+        for k in range(1, self.nodes + 1):
             vertical_acceleration = self._control_change_rate(U, k - 1, 1)
             opti.subject_to(
                 opti.bounded(
@@ -281,14 +281,14 @@ class Descent(Base):
             )
 
         # Force and energy constraints.
-        for k in range(self.nodes):
-            mass = X[k][3]
-            v = oc.aero.mach2tas(U[k][0], X[k][2], dT=self.dT)
+        for state, control in transcription.path_points():
+            mass = state[3]
+            v = oc.aero.mach2tas(control[0], state[2], dT=self.dT)
             tas = v / kts
-            alt = X[k][2] / ft
+            alt = state[2] / ft
             thrust_max = self.thrust.cruise(tas, alt, dT=self.dT)
             drag = self._constrain_clean_performance(opti, mass, tas, alt, thrust_max)
-            excess_energy = (thrust_max - drag) * v - mass * oc.aero.g0 * U[k][1]
+            excess_energy = (thrust_max - drag) * v - mass * oc.aero.g0 * control[1]
             opti.subject_to(excess_energy >= 0)
 
         self._constrain_waypoints(
@@ -358,7 +358,7 @@ class Descent(Base):
             self._route_anchor_nodes[:-1],
             self._route_anchor_nodes[1:],
         ):
-            for node in range(start, end):
+            for node in range(start, end + 1):
                 opti.subject_to(
                     opti.bounded(
                         heading - tolerance,

@@ -308,7 +308,7 @@ class CompleteFlight(Base):
             cruise_vs_limit = self._cruise_vertical_rate_limit()
             cruise_mach_min = self._cruise_mach_min()
 
-            for k in range(idx_toc, idx_tod):
+            for k in range(idx_toc, idx_tod + 1):
                 # Keep the allocated cruise mesh approximately level while using
                 # the model-specific band needed for short-route feasibility.
                 opti.subject_to(
@@ -319,27 +319,27 @@ class CompleteFlight(Base):
                 if cruise_mach_min is not None:
                     opti.subject_to(U[k][0] >= cruise_mach_min)
 
-            for k in range(0, idx_toc):
+            for k in range(0, idx_toc + 1):
                 opti.subject_to(U[k][1] >= 0)
 
-            for k in range(idx_tod, self.nodes):
+            for k in range(idx_tod, self.nodes + 1):
                 opti.subject_to(U[k][1] <= 0)
 
         # Force and energy constraints
-        for k in range(self.nodes):
-            mass = X[k][3]
-            v = oc.aero.mach2tas(U[k][0], X[k][2], dT=self.dT)
+        for state, control in self._last_transcription.path_points():
+            mass = state[3]
+            v = oc.aero.mach2tas(control[0], state[2], dT=self.dT)
             tas = v / kts
-            alt = X[k][2] / ft
+            alt = state[2] / ft
             thrust_max = self._thrust_climb(tas, alt)
             drag = self._constrain_clean_performance(opti, mass, tas, alt, thrust_max)
 
             # Excess energy > change in potential energy
-            excess_energy = (thrust_max - drag) * v - mass * oc.aero.g0 * U[k][1]
+            excess_energy = (thrust_max - drag) * v - mass * oc.aero.g0 * control[1]
             opti.subject_to(excess_energy >= 0)
 
         # ts and dt consistency
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             opti.subject_to(
                 opti.bounded(-1, X[k + 1][4] - X[k][4] - self._interval_dt(k), 1)  # type: ignore[arg-type]
                 # CasADi stubs wrong
@@ -347,14 +347,14 @@ class CompleteFlight(Base):
 
         # Smooth Mach number change
         mach_change_limit = self._mach_change_limit()
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             mach_delta = U[k + 1][0] - U[k][0]
             opti.subject_to(
                 opti.bounded(-mach_change_limit, mach_delta, mach_change_limit)  # type: ignore[arg-type]  # CasADi stubs wrong
             )
 
         # Limit vertical acceleration independently of interval duration
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             vertical_acceleration = self._control_change_rate(U, k, 1)
             opti.subject_to(
                 opti.bounded(
@@ -365,7 +365,7 @@ class CompleteFlight(Base):
             )
 
         # Limit turn rate independently of interval duration
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             turn_rate = self._control_change_rate(U, k, 2)
             opti.subject_to(
                 opti.bounded(-self.MAX_TURN_RATE, turn_rate, self.MAX_TURN_RATE)  # type: ignore[arg-type]  # CasADi stubs wrong

@@ -45,7 +45,7 @@ def to_dataframe(
     Args:
         ts_final: Final timestamp (scalar).
         x_opt: Optimized states, shape (5, N+1) — [xp, yp, h, mass, ts].
-        u_opt: Optimized controls, shape (3, N) — [mach, vs, psi].
+        u_opt: Optimized controls, shape (3, N+1) — [mach, vs, psi].
         proj: pyproj-style projection callable.
         nodes: Number of control intervals (so the state has ``nodes + 1`` columns).
         dT: ISA temperature offset, Kelvin.
@@ -59,7 +59,7 @@ def to_dataframe(
 
     Returns:
         (df, X, U, dt): the trajectory DataFrame plus the state array (with
-        the final interval control repeated at the terminal state) and the
+        the optimized control at each boundary, including the terminal state) and the
         segment duration ``dt = ts_final / nodes``. The caller assigns these
         back onto the Base instance to preserve historical side-effect semantics.
     """
@@ -68,10 +68,12 @@ def to_dataframe(
     X = x_opt if isinstance(x_opt, np.ndarray) else x_opt.full()
     U = u_opt if isinstance(u_opt, np.ndarray) else u_opt.full()
 
-    # Controls are defined per interval. Repeat the final optimized interval
-    # control for the terminal state so reported profiles do not display a
-    # fabricated control value outside the NLP bounds.
-    U = np.append(U, U[:, -1:], axis=1)
+    # Accept historical interval-control arrays for callers replaying saved data.
+    # New solves already contain the independently optimized terminal control.
+    if U.shape[1] == nodes:
+        U = np.append(U, U[:, -1:], axis=1)
+    elif U.shape[1] != nodes + 1:
+        raise ValueError("controls must have nodes + 1 boundary columns")
     n = nodes + 1
 
     xp, yp, h, mass, ts = X

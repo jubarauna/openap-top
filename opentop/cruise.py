@@ -195,37 +195,29 @@ class Cruise(Base):
         )
         X, U = transcription.X, transcription.U
 
-        # Aircraft performance constraints
-        for k in range(self.nodes):
-            mass = X[k][3]
-            v = oc.aero.mach2tas(U[k][0], X[k][2], dT=self.dT)
-            tas = v / kts
-            alt = X[k][2] / ft
-            thrust_max = self._thrust_climb(tas, alt)
-            self._constrain_clean_performance(opti, mass, tas, alt, thrust_max)
-
-        # Terminal state uses the final interval control U[-1].
-        v_f = oc.aero.mach2tas(U[-1][0], X[-1][2], dT=self.dT)
-        tas_f = v_f / kts
-        alt_f = X[-1][2] / ft
-        thrust_max_f = self._thrust_climb(tas_f, alt_f)
-        self._constrain_clean_performance(opti, X[-1][3], tas_f, alt_f, thrust_max_f)
+        # Nonlinear performance constraints need checks inside each interval.
+        for state, control in transcription.path_points():
+            v = oc.aero.mach2tas(control[0], state[2], dT=self.dT)
+            tas, alt = v / kts, state[2] / ft
+            self._constrain_clean_performance(
+                opti, state[3], tas, alt, self._thrust_climb(tas, alt)
+            )
 
         # ts and dt consistency
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             opti.subject_to(
                 opti.bounded(-1, X[k + 1][4] - X[k][4] - self._interval_dt(k), 1)  # type: ignore[arg-type]
             )
 
         # Limit turn rate independently of interval duration
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             turn_rate = self._control_change_rate(U, k, 2)
             opti.subject_to(
                 opti.bounded(-self.MAX_TURN_RATE, turn_rate, self.MAX_TURN_RATE)  # type: ignore[arg-type]
             )
 
         # Limit vertical acceleration independently of interval duration
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             vertical_acceleration = self._control_change_rate(U, k, 1)
             opti.subject_to(
                 opti.bounded(
@@ -236,19 +228,19 @@ class Cruise(Base):
             )
 
         if self.fix_mach:
-            for k in range(self.nodes - 1):
+            for k in range(self.nodes):
                 opti.subject_to(U[k + 1][0] == U[k][0])
 
         if self.fix_alt:
-            for k in range(self.nodes):
+            for k in range(self.nodes + 1):
                 opti.subject_to(U[k][1] == 0)
 
         if self.fix_track:
-            for k in range(self.nodes - 1):
+            for k in range(self.nodes):
                 opti.subject_to(U[k + 1][2] == U[k][2])
 
         if not self.allow_descent:
-            for k in range(self.nodes):
+            for k in range(self.nodes + 1):
                 opti.subject_to(U[k][1] >= 0)
 
         self._constrain_waypoints(

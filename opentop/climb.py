@@ -229,11 +229,11 @@ class Climb(Base):
         # --- Phase-specific constraints ---
 
         # Smooth Mach number changes
-        for k in range(1, self.nodes):
+        for k in range(1, self.nodes + 1):
             opti.subject_to(opti.bounded(-0.05, U[k][0] - U[k - 1][0], 0.05))  # type: ignore[arg-type]  # CasADi stubs wrong: bounded(float, expr, float) is valid
 
         # Total energy model
-        for k in range(self.nodes - 1):
+        for k in range(self.nodes):
             hk = X[k][2]
             hk1 = X[k + 1][2]
             vk = oc.aero.mach2tas(U[k][0], hk, dT=self.dT)
@@ -248,12 +248,12 @@ class Climb(Base):
             )
 
         # Constrain time and dt
-        for k in range(1, self.nodes):
+        for k in range(1, self.nodes + 1):
             time_delta = X[k][4] - X[k - 1][4] - self._interval_dt(k - 1)
             opti.subject_to(opti.bounded(-1, time_delta, 1))  # type: ignore[arg-type]  # CasADi stubs wrong
 
         # Limit vertical acceleration independently of interval duration
-        for k in range(1, self.nodes):
+        for k in range(1, self.nodes + 1):
             vertical_acceleration = self._control_change_rate(U, k - 1, 1)
             opti.subject_to(
                 opti.bounded(
@@ -264,7 +264,7 @@ class Climb(Base):
             )
 
         # Limit turn rate independently of interval duration
-        for k in range(1, self.nodes - 1):
+        for k in range(1, self.nodes + 1):
             turn_rate = self._control_change_rate(U, k - 1, 2)
             opti.subject_to(
                 opti.bounded(-self.MAX_TURN_RATE, turn_rate, self.MAX_TURN_RATE)  # type: ignore[arg-type]  # CasADi stubs wrong

@@ -40,6 +40,22 @@ pip install --upgrade git+https://github.com/junzis/opentop
 
 `opentop` is a standalone package. Prior to v2.0 it shipped as `openap.top`, a namespace extension of `openap`; v2.0 drops that and installs as a top-level `opentop` package instead.
 
+## Control representation
+
+The development version uses continuous, piecewise-linear Mach, vertical-speed
+and heading controls. With `nodes=N` intervals it optimizes `N+1` boundary
+controls, including an independent arrival control. Dynamics and objective
+quadrature evaluate the interpolated control at every collocation point.
+Phase rate limits cover every interval using its actual duration, including
+variable timesteps. Cruise performance constraints also cover internal
+collocation points; nonlinear feasibility still requires between-node checks.
+
+This replaces the previous piecewise-constant control transcription. Saved
+trajectory DataFrames retain their columns and `N+1` rows. The numeric export
+helper still accepts historical `N`-column control arrays for replaying old data.
+Continuity does not imply continuous control derivatives, a certified continuous
+path envelope, or a complete acceleration-energy model.
+
 ## Quick Start
 
 ### A simple optimal flight

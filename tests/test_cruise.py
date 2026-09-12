@@ -208,7 +208,10 @@ def test_cruise_terminal_performance_uses_shared_thrust_helper(
         def stats(self):
             return {"success": True}
 
+    built = {}
+
     def fake_solve(X, U, **kwargs):
+        built.update(X=X, U=U)
         opt._last_solution = FakeSolution()
         return pd.DataFrame(
             {
@@ -225,5 +228,15 @@ def test_cruise_terminal_performance_uses_shared_thrust_helper(
 
     opt.trajectory(objective="fuel")
 
-    assert len(thrust_calls) == opt.nodes + 1
-    assert len(performance_calls) == opt.nodes + 1
+    import casadi as ca
+
+    expected = opt.nodes + 1 + opt.nodes * opt.polydeg
+    assert len(thrust_calls) == len(performance_calls) == expected
+    # The true terminal control is checked, as are interpolated interior controls.
+    assert ca.depends_on(performance_calls[opt.nodes][1], built["U"][-1])
+    assert ca.depends_on(performance_calls[opt.nodes][0], built["X"][-1])
+    for k in range(opt.nodes):
+        for j in range(opt.polydeg):
+            tas = performance_calls[opt.nodes + 1 + k * opt.polydeg + j][1]
+            assert ca.depends_on(tas, built["U"][k])
+            assert ca.depends_on(tas, built["U"][k + 1])

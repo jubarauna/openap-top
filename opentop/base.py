@@ -466,7 +466,8 @@ class Base:
 
         Returns:
             tuple: (X, U) where X is list of state MX vars at each node boundary
-                   (length nodes+1), U is list of control MX vars (length nodes).
+                   (length nodes+1), U is list of boundary control MX vars
+                   (length nodes+1).
         """
         opti = ca.Opti()
         transcription = self._add_transcription(
@@ -476,6 +477,7 @@ class Base:
             minimize=True,
             **kwargs,
         )
+        self._last_transcription = transcription
         return transcription.X, transcription.U
 
     def _add_transcription(
@@ -557,7 +559,8 @@ class Base:
 
         X = []  # States at node boundaries (length: nodes + 1)
         Xc_store = []  # Collocation states per interval
-        U = []  # Controls at each node (length: nodes)
+        U = []  # Shared boundary controls (length: nodes + 1)
+        roots = ca.collocation_points(self.polydeg, "legendre")
         J = 0  # Objective accumulator
 
         # Initial state
@@ -565,6 +568,19 @@ class Base:
         self._opti.subject_to(self._opti.bounded(self.x_0_lb, Xk, self.x_0_ub))  # type: ignore[arg-type]  # CasADi stubs wrong: bounded(lb, expr, ub) accepts lists
         self._opti.set_initial(Xk, self.x_guess[0])
         X.append(Xk)
+
+        # Sharing each boundary control makes the interpolant continuous.
+        for k in range(self.nodes + 1):
+            Uk = self._opti.variable(self.u.shape[0])
+            U.append(Uk)
+            if k == 0:
+                u_lb, u_ub = self.u_0_lb, self.u_0_ub
+            elif k == self.nodes:
+                u_lb, u_ub = self.u_f_lb, self.u_f_ub
+            else:
+                u_lb, u_ub = self.u_lb, self.u_ub
+            self._opti.subject_to(self._opti.bounded(u_lb, Uk, u_ub))
+            self._opti.set_initial(Uk, self.u_guess)
 
         for k in range(self.nodes):
             if variable_timestep:
@@ -579,20 +595,6 @@ class Base:
                 self._interval_dts.append(interval_dt)
             else:
                 interval_dt = self.dt
-
-            # Control variable
-            Uk = self._opti.variable(self.u.shape[0])
-            U.append(Uk)
-
-            if k == 0:
-                u_lb, u_ub = self.u_0_lb, self.u_0_ub
-            elif k == self.nodes - 1:
-                u_lb, u_ub = self.u_f_lb, self.u_f_ub
-            else:
-                u_lb, u_ub = self.u_lb, self.u_ub
-
-            self._opti.subject_to(self._opti.bounded(u_lb, Uk, u_ub))  # type: ignore[arg-type]  # CasADi stubs wrong
-            self._opti.set_initial(Uk, self.u_guess)
 
             # Collocation points within this interval
             Xc = []
@@ -610,7 +612,8 @@ class Base:
                 for r in range(self.polydeg):
                     xpc = xpc + C[r + 1, j] * Xc[r]
 
-                fj, qj = self.func_dynamics(Xc[j - 1], Uk, interval_dt)  # type: ignore[misc]  # CasADi Function.__call__ return is opaque to pyright
+                Uc = (1 - roots[j - 1]) * U[k] + roots[j - 1] * U[k + 1]
+                fj, qj = self.func_dynamics(Xc[j - 1], Uc, interval_dt)  # type: ignore[misc]  # CasADi Function.__call__ return is opaque to pyright
                 self._constrain_performance_model_domain(fj)
                 self._opti.subject_to(interval_dt * fj == xpc)
 
@@ -680,6 +683,7 @@ class Base:
             objective_scale=self._objective_rescale,
             objective_kwargs=dict(kwargs),
             projection_center=getattr(self, "_projection_center", None),
+            collocation_roots=tuple(roots),
         )
 
     def _interval_dt(self, k: int) -> Any:
@@ -688,7 +692,7 @@ class Base:
         return self.dt
 
     def _control_change_rate(self, U: list[Any], k: int, component: int) -> Any:
-        """Return the control change from interval k to k + 1 per second."""
+        """Return the constant control slope within interval k, per second."""
         return (U[k + 1][component] - U[k][component]) / self._interval_dt(k)
 
     def _variable_timestep_bounds(

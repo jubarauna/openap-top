@@ -1,8 +1,11 @@
 """Tests for CompleteFlight trajectory optimizer."""
 
+from typing import cast
+
 import pytest
 
 import opentop as top
+import pandas as pd
 
 
 @pytest.fixture(scope="module")
@@ -13,7 +16,12 @@ def complete_flight_df(aircraft_type, short_flight):
         short_flight["destination"],
         short_flight["m0"],
     )
-    return optimizer.trajectory(objective="fuel")
+    result = optimizer.trajectory(objective="fuel")
+    assert optimizer.success
+    assert isinstance(result, pd.DataFrame)
+    frame = cast(pd.DataFrame, result)
+    frame.attrs["cruise_nodes"] = optimizer._phase_node_indices()
+    return frame
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +49,10 @@ class TestCompleteFlight:
         assert df.altitude.iloc[-1] < 1000
 
     def test_climbs_to_cruise(self, complete_flight_df):
-        assert complete_flight_df.altitude.max() > 20000
+        # FL150 is the configured minimum for the allocated cruise phase.
+        # Its fuel-optimal altitude is free; 20,000 ft was not a model requirement.
+        start, end = complete_flight_df.attrs["cruise_nodes"]
+        assert complete_flight_df.altitude.iloc[start : end + 1].min() >= 15000 - 1
 
     def test_mass_decreases(self, complete_flight_df):
         df = complete_flight_df

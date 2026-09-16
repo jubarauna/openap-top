@@ -163,6 +163,9 @@ def run_multi_start(
         return {
             "start_index": index,
             "objective": float(getattr(optimizer, "objective_value", float("nan"))),
+            "grid_cost_exact": float(
+                getattr(optimizer, "grid_cost_value", None) or float("nan")
+            ),
             "fuel": float(df["mass"].iloc[0] - df["mass"].iloc[-1]),
             "grid_cost": grid,
             "success": bool(stats.get("success")),
@@ -203,4 +206,7 @@ def run_multi_start(
             candidates.append(_make_candidate(i, df_i, lat_km, alt_ft, wall))
 
     candidates = _rank_candidates(candidates)
+    # The attributes must describe the RETURNED trajectory, not the last start.
+    optimizer.objective_value = candidates[0]["objective"]
+    optimizer.grid_cost_value = candidates[0]["grid_cost_exact"]
     return candidates[0]["trajectory"], candidates
